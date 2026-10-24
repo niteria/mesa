@@ -25,7 +25,7 @@
 #include "util/macros.h"
 #include <sys/mman.h>
 
-const char *targets[] = {"g13g", "g13x", "g17p", "g15s", "g16g", "g17g"};
+const char *targets[] = {"g13g", "g13x", "g17p", "g15s", "g15g", "g16g", "g17g"};
 
 #define foreach_target(target)                                                 \
    for (const char **target = &targets[0];                                     \
@@ -40,6 +40,8 @@ target_chip(const char *target)
       return AGX_CHIP_G17G;
    else if (!strcmp(target, "g15s"))
       return AGX_CHIP_G15S;
+   else if (!strcmp(target, "g15g"))
+      return AGX_CHIP_G15G;
    else if (!strcmp(target, "g16g"))
       return AGX_CHIP_G16G;
    else if (!strcmp(target, "g13x"))
