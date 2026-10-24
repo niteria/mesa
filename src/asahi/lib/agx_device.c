@@ -928,7 +928,6 @@ agx_open_device(void *memctx, struct agx_device *dev)
    if (m5_bringup)
       fprintf(stderr, "Experimental M5 HAL300 integration enabled; general rendering is unqualified\n");
    if (!agx_params_driver_supported(&dev->params) && !m5_bringup) {
-
       if (dev->chip == AGX_CHIP_UNKNOWN) {
          fprintf(stderr,
                  "Unsupported Apple GPU architecture G%u (variant 0x%x, %u "
@@ -1191,7 +1190,6 @@ agx_open_device(void *memctx, struct agx_device *dev)
    const uint64_t user_limit = agx_chip_g17_m5(dev->chip)
       ? AGX_M5_DATA_END
       : agx_va_user_limit(dev->chip, heap_below_usc, vm_create.kernel_start);
-
    uint64_t user_size = user_limit - user_start;
 
    int ret = dev->ops.simple_ioctl(dev, DRM_IOCTL_ASAHI_VM_CREATE, &vm_create);

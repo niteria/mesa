@@ -542,9 +542,10 @@ bool agx_chip_driver_supported(enum agx_chip chip);
 bool agx_params_driver_supported(
    const struct drm_asahi_params_global *params);
 
-/* Reject the known incompatible legacy feature/payload contract on AGX3. */
+/* Reject the known incompatible pre-unification native kernel contract. */
 bool agx_params_native_kernel_abi_supported(
    const struct drm_asahi_params_global *params);
+
 /* Whether a device of this chip may open: G15G (T8122) runs on the native path
  * only with ASAHI_M3_EXPERIMENTAL=1, every other supported chip always. */
 bool agx_chip_experimental_admitted(enum agx_chip chip);
