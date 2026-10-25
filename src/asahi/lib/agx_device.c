@@ -911,23 +911,13 @@ agx_open_device(void *memctx, struct agx_device *dev)
     * is implemented; otherwise a newly-recognised chip can silently reach an
     * encoder from the wrong generation.
     */
-   /* G15G (T8122) runs on the native path only on explicit request. */
-   if (dev->chip == AGX_CHIP_G15G && agx_params_driver_supported(&dev->params)) {
-      if (!agx_chip_experimental_admitted(dev->chip)) {
-         fprintf(stderr, "Apple G15G (T8122) is recognised but not admitted: "
-                         "set ASAHI_M3_EXPERIMENTAL=1 to run it\n");
-         goto fail;
-      }
-      fprintf(stderr, "WARNING: experimental G15G/T8122 admission "
-                      "(ASAHI_M3_EXPERIMENTAL=1)\n");
-   }
-
    const bool m5_bringup =
       debug_get_bool_option("ASAHI_M5_BRINGUP", false) &&
       agx_params_m5_bringup_supported(&dev->params);
    if (m5_bringup)
       fprintf(stderr, "Experimental M5 HAL300 integration enabled; general rendering is unqualified\n");
    if (!agx_params_driver_supported(&dev->params) && !m5_bringup) {
+
       if (dev->chip == AGX_CHIP_UNKNOWN) {
          fprintf(stderr,
                  "Unsupported Apple GPU architecture G%u (variant 0x%x, %u "
