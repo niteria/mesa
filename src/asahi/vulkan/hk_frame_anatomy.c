@@ -908,8 +908,8 @@ hk_fa_payload_cmd(const struct hk_frame_anatomy_rec *rec, void *payload,
    if (h->cmd_type != expect ||
        (size_t)rec->header_off + sizeof(*h) + h->size > payload_size)
       return NULL;
-   const size_t need = rec->kind == 'R' ? sizeof(struct drm_asahi_cmd_render)
-                                        : sizeof(struct drm_asahi_cmd_compute);
+   const size_t need = rec->kind == 'R' ? AGX_DRM_RENDER_SIZE_BASE
+                                        : AGX_DRM_COMPUTE_SIZE_BASE;
    if (h->size < need)
       return NULL;
    if (hdr)
@@ -963,15 +963,14 @@ hk_frame_anatomy_note_barriers(struct hk_frame_anatomy_submit *s,
       rec->barriers_known = true;
       rec->prior_vdm = rec->prior_cdm = 0;
       if (rec->kind == 'R' &&
-          h->size >= sizeof(struct drm_asahi_cmd_render_with_prior)) {
-         const struct drm_asahi_cmd_render_with_prior *r = cmd;
+          h->size >= AGX_DRM_RENDER_SIZE_PRIOR) {
+         const struct drm_asahi_cmd_render *r = cmd;
          rec->prior_vdm = r->prior_vdm;
          rec->prior_cdm = r->prior_cdm;
       } else if (rec->kind == 'C' &&
-                 h->size >= offsetof(struct drm_asahi_cmd_compute_with_prior,
-                                     prior_cdm) +
+                 h->size >= offsetof(struct drm_asahi_cmd_compute, prior_cdm) +
                                sizeof(uint64_t)) {
-         const struct drm_asahi_cmd_compute_with_prior *k = cmd;
+         const struct drm_asahi_cmd_compute *k = cmd;
          rec->prior_vdm = k->prior_vdm;
          rec->prior_cdm = k->prior_cdm;
       }

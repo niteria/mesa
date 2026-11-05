@@ -4,6 +4,7 @@
  */
 
 #include "hk_drm_render_core.h"
+#include "agx_drm_cmd.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -108,14 +109,14 @@ uint16_t
 hk_drm_render_command_size(bool native, bool exact_prior)
 {
    if (exact_prior)
-      return sizeof(struct drm_asahi_cmd_render_with_prior);
+      return AGX_DRM_RENDER_SIZE_PRIOR;
 
    /* Legacy kernels consume only the fields they know, without skipping an
     * appended tail. Even zero resource-specifier high words would then be
     * parsed as another command. Keep their original packet boundary. The
     * native path's USC window sits at 2^40, so it always needs the high
     * words. */
-   return native ? sizeof(struct drm_asahi_cmd_render)
+   return native ? AGX_DRM_RENDER_SIZE_BASE
                  : offsetof(struct drm_asahi_cmd_render, bg_eot_rsrc_spec_hi);
 }
 

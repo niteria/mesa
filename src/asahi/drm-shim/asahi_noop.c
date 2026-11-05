@@ -19,6 +19,7 @@
 #include "util/simple_mtx.h"
 #include "drm-shim/drm_shim.h"
 #include "drm-uapi/asahi_drm.h"
+#include "agx_drm_cmd.h"
 
 bool drm_shim_driver_prefers_first_render_node = true;
 
@@ -1541,9 +1542,10 @@ asahi_log_submit(const struct drm_asahi_submit *submit)
        * records it actually contains is indistinguishable from a correct one
        * until the hardware reads the gap. */
       if (header.cmd_type == DRM_ASAHI_CMD_COMPUTE &&
-          header.size >= sizeof(struct drm_asahi_cmd_compute)) {
-         struct drm_asahi_cmd_compute compute;
-         memcpy(&compute, cmdbuf + offset + sizeof(header), sizeof(compute));
+          header.size >= AGX_DRM_COMPUTE_SIZE_BASE) {
+         struct drm_asahi_cmd_compute compute = {0};
+         memcpy(&compute, cmdbuf + offset + sizeof(header),
+                AGX_DRM_COMPUTE_SIZE_BASE);
          fprintf(log, " cdm_base=0x%llx cdm_end=0x%llx cdm_len=%llu",
                  (unsigned long long)compute.cdm_ctrl_stream_base,
                  (unsigned long long)compute.cdm_ctrl_stream_end,

@@ -281,7 +281,7 @@ if with_tests
     executable(
       'hk_render_resource_span_test',
       files('tests/test-hk-render-resource-span.c', 'hk_drm_render_core.c'),
-      include_directories : [include_directories('.'), inc_include],
+      include_directories : [include_directories('.'), inc_include, inc_asahi],
       c_args : [c_msvc_compat_args],
     ),
     suite : ['asahi'],

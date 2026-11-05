@@ -3,7 +3,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include "drm-uapi/asahi_drm.h"
+#include "agx_drm_cmd.h"
 
 /* Prefixes belong to an occurrence in the ioctl payload, not the recorded
  * command buffer: simultaneous-use command buffers can appear more than once.
@@ -42,16 +44,16 @@ hk_drm_rebase_prior(struct drm_asahi_cmd_header *h, void *payload,
    uint16_t barriers[2] = {h->vdm_barrier, h->cdm_barrier};
    const uint32_t before[2] = {vdm_before, cdm_before};
    uint64_t prior[2] = {0, 0};
-   struct drm_asahi_cmd_render_with_prior *r = payload;
-   struct drm_asahi_cmd_compute_with_prior *c = payload;
+   struct drm_asahi_cmd_render *r = payload;
+   struct drm_asahi_cmd_compute *c = payload;
    if (exact) {
       if (h->cmd_type == DRM_ASAHI_CMD_RENDER) {
-         if (h->size < sizeof(*r))
+         if (h->size < AGX_DRM_RENDER_SIZE_PRIOR)
             return false;
          prior[0] = r->prior_vdm;
          prior[1] = r->prior_cdm;
       } else if (h->cmd_type == DRM_ASAHI_CMD_COMPUTE) {
-         if (h->size < sizeof(*c))
+         if (h->size < AGX_DRM_COMPUTE_SIZE_FULL)
             return false;
          prior[0] = c->prior_vdm;
          prior[1] = c->prior_cdm;
@@ -79,11 +81,17 @@ hk_drm_rebase_prior(struct drm_asahi_cmd_header *h, void *payload,
    h->vdm_barrier = barriers[0];
    h->cdm_barrier = barriers[1];
    if (exact && h->cmd_type == DRM_ASAHI_CMD_RENDER &&
-       (r->legacy.flags & DRM_ASAHI_RENDER_STAGE_PREFIXES)) {
-      /* Both tiling prefixes are rebased like the header's. */
-      struct drm_asahi_cmd_render_with_stage_prefixes *s = payload;
-      if (h->size != sizeof(*s))
+       (r->flags & DRM_ASAHI_RENDER_STAGE_PREFIXES)) {
+      /* Both tiling prefixes are rebased like the header's. The command
+       * carries them right after prior_cdm. */
+      const size_t tail =
+         AGX_DRM_RENDER_SIZE_FULL - AGX_DRM_RENDER_SIZE_RAY_QUERY;
+      if (h->size != AGX_DRM_RENDER_SIZE_PRIOR + tail)
          return false;
+      struct drm_asahi_cmd_render staged;
+      struct drm_asahi_cmd_render *s = &staged;
+      uint8_t *at = (uint8_t *)payload + AGX_DRM_RENDER_SIZE_PRIOR;
+      memcpy(&s->ta_cdm_barrier, at, tail);
       __u16 *ta[2] = {&s->ta_vdm_barrier, &s->ta_cdm_barrier};
       __u64 *ta_prior[2] = {&s->ta_prior_vdm, &s->ta_prior_cdm};
       for (unsigned sq = 0; sq < 2; ++sq) {
@@ -101,25 +109,7 @@ hk_drm_rebase_prior(struct drm_asahi_cmd_header *h, void *payload,
             *ta[sq] = DRM_ASAHI_BARRIER_NONE;
          }
       }
-   } else if (exact && h->cmd_type == DRM_ASAHI_CMD_RENDER &&
-              (r->legacy.flags & DRM_ASAHI_RENDER_COMPUTE_STAGE_BARRIERS)) {
-      /* The tiling half's compute prefix is rebased like the header's. */
-      struct drm_asahi_cmd_render_with_stage_prior *s = payload;
-      if (h->size != sizeof(*s))
-         return false;
-      const uint16_t value = s->ta_cdm_barrier;
-      if (value != DRM_ASAHI_BARRIER_NONE && value != 0) {
-         if (value > before[1]) {
-            s->ta_cdm_barrier = value - before[1];
-         } else {
-            if (initial[1] > UINT64_MAX - value)
-               return false;
-            const uint64_t absolute = initial[1] + value;
-            if (absolute > s->ta_prior_cdm)
-               s->ta_prior_cdm = absolute;
-            s->ta_cdm_barrier = DRM_ASAHI_BARRIER_NONE;
-         }
-      }
+      memcpy(at, &s->ta_cdm_barrier, tail);
    }
    if (exact && h->cmd_type == DRM_ASAHI_CMD_RENDER) {
       r->prior_vdm = prior[0];

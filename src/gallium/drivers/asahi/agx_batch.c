@@ -1261,7 +1261,8 @@ agx_batch_submit(struct agx_context *ctx, struct agx_batch *batch,
 
          struct drm_asahi_cmd_header header = agx_cmd_header(true, 0, 0);
          util_dynarray_append(&compute_cmdbuf, header);
-         util_dynarray_append(&compute_cmdbuf, *compute);
+         util_dynarray_append_array(&compute_cmdbuf, uint8_t, compute,
+                                    header.size);
 
          struct drm_asahi_submit compute_submit = {
             .flags = 0,
@@ -1352,7 +1353,7 @@ agx_batch_submit(struct agx_context *ctx, struct agx_batch *batch,
       struct drm_asahi_cmd_header header = agx_cmd_header(true, 0, 0);
 
       util_dynarray_append(&cmdbuf, header);
-      util_dynarray_append(&cmdbuf, *compute);
+      util_dynarray_append_array(&cmdbuf, uint8_t, compute, header.size);
 
       if (m5_split_prepass) {
          /* The M5 compute profile is grounded for a single-dispatch control
@@ -1391,7 +1392,7 @@ agx_batch_submit(struct agx_context *ctx, struct agx_batch *batch,
 
             util_dynarray_clear(&cmdbuf);
             util_dynarray_append(&cmdbuf, header);
-            util_dynarray_append(&cmdbuf, one);
+            util_dynarray_append_array(&cmdbuf, uint8_t, &one, header.size);
 
             struct drm_asahi_submit prepass = {
                .flags = 0,
@@ -1431,7 +1432,7 @@ agx_batch_submit(struct agx_context *ctx, struct agx_batch *batch,
             one.cdm_ctrl_stream_end = cdm_base + batch->cdm_dispatch[last].end;
 
             util_dynarray_append(&cmdbuf, header);
-            util_dynarray_append(&cmdbuf, one);
+            util_dynarray_append_array(&cmdbuf, uint8_t, &one, header.size);
          }
       }
    }

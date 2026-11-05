@@ -11,6 +11,7 @@
 #include <xf86drm.h>
 #endif
 #include "drm-uapi/asahi_drm.h"
+#include "agx_drm_cmd.h"
 #include "util/ralloc.h"
 #include "util/cnd_monotonic.h"
 #include "util/u_thread.h"
@@ -566,8 +567,7 @@ agx_cmd_header(bool compute, uint16_t barrier_vdm, uint16_t barrier_cdm)
 {
    return (struct drm_asahi_cmd_header){
       .cmd_type = compute ? DRM_ASAHI_CMD_COMPUTE : DRM_ASAHI_CMD_RENDER,
-      .size = compute ? sizeof(struct drm_asahi_cmd_compute)
-                      : sizeof(struct drm_asahi_cmd_render),
+      .size = compute ? AGX_DRM_COMPUTE_SIZE_BASE : AGX_DRM_RENDER_SIZE_BASE,
       .vdm_barrier = barrier_vdm,
       .cdm_barrier = barrier_cdm,
    };
@@ -583,6 +583,6 @@ static inline uint16_t
 agx_render_command_size(const struct agx_device *dev)
 {
    return agx_chip_native_agx3(dev->chip)
-             ? sizeof(struct drm_asahi_cmd_render)
+             ? AGX_DRM_RENDER_SIZE_BASE
              : offsetof(struct drm_asahi_cmd_render, bg_eot_rsrc_spec_hi);
 }

@@ -10,35 +10,37 @@
 #include "hk_device.h"
 #include "hk_drm_prior_core.h"
 #include "hk_queue.h"
-_Static_assert(sizeof(struct drm_asahi_cmd_render) == 320, "legacy render");
-_Static_assert(sizeof(struct drm_asahi_cmd_compute) == 128,
-               "legacy Mesa compute");
-_Static_assert(sizeof(struct drm_asahi_cmd_render_with_prior) == 336,
-               "render wire");
-_Static_assert(offsetof(struct drm_asahi_cmd_render_with_prior, prior_vdm) ==
-                  320,
+/* The wire sizes each command sends, from the kernel header's one struct. */
+_Static_assert(AGX_DRM_RENDER_SIZE_BASE == 320, "base render");
+_Static_assert(AGX_DRM_RENDER_SIZE_PRIOR == 336, "render with priors");
+_Static_assert(offsetof(struct drm_asahi_cmd_render, prior_vdm) == 320,
                "render prior vdm");
-_Static_assert(offsetof(struct drm_asahi_cmd_render_with_prior, prior_cdm) ==
-                  328,
+_Static_assert(offsetof(struct drm_asahi_cmd_render, prior_cdm) == 328,
                "render prior cdm");
-_Static_assert(sizeof(struct drm_asahi_cmd_compute_with_prior) == 200,
-               "compute wire");
-_Static_assert(offsetof(struct drm_asahi_cmd_compute_with_prior, scs_layout) ==
-                  128,
+_Static_assert(AGX_DRM_RENDER_SIZE_RAY_QUERY == 448, "render with ray queries");
+_Static_assert(offsetof(struct drm_asahi_cmd_render, ta_cdm_barrier) == 448,
+               "render stage prefixes");
+_Static_assert(offsetof(struct drm_asahi_cmd_render, ta_prior_cdm) == 456,
+               "render tiling compute prior");
+_Static_assert(offsetof(struct drm_asahi_cmd_render, ta_vdm_barrier) == 464,
+               "render tiling render barrier");
+_Static_assert(offsetof(struct drm_asahi_cmd_render, ta_prior_vdm) == 472,
+               "render tiling render prior");
+_Static_assert(AGX_DRM_RENDER_SIZE_FULL == 480, "full render");
+_Static_assert(AGX_DRM_COMPUTE_SIZE_BASE == 128, "base compute");
+_Static_assert(AGX_DRM_COMPUTE_SIZE_FULL == 200, "compute wire");
+_Static_assert(offsetof(struct drm_asahi_cmd_compute, scs_layout) == 128,
                "kernel scs_layout gap");
-_Static_assert(offsetof(struct drm_asahi_cmd_compute_with_prior, prior_vdm) ==
-                  136,
+_Static_assert(offsetof(struct drm_asahi_cmd_compute, prior_vdm) == 136,
                "compute prior vdm");
-_Static_assert(offsetof(struct drm_asahi_cmd_compute_with_prior, prior_cdm) ==
-                  144,
+_Static_assert(offsetof(struct drm_asahi_cmd_compute, prior_cdm) == 144,
                "compute prior cdm");
-_Static_assert(offsetof(struct drm_asahi_cmd_compute_with_prior,
+_Static_assert(offsetof(struct drm_asahi_cmd_compute,
                         cdm_auxiliary_allocation) == 152,
                "compute auxiliary allocation");
-_Static_assert(offsetof(struct drm_asahi_cmd_compute_with_prior,
-                        intersection_pool) == 160,
+_Static_assert(offsetof(struct drm_asahi_cmd_compute, intersection_pool) == 160,
                "compute intersection pool");
-_Static_assert(offsetof(struct drm_asahi_cmd_compute_with_prior,
+_Static_assert(offsetof(struct drm_asahi_cmd_compute,
                         intersection_default_control) == 192,
                "compute intersection default control");
 static unsigned tests, failures;
@@ -1421,9 +1423,9 @@ main(void)
    T("ordinal overflow rejected", !submit(q, a));
    T("overflow no counter/stream mutation",
      q->sync.submitted[1] == UINT64_MAX && d->sync.index == 73);
-   struct drm_asahi_cmd_render_with_prior r = {0};
+   struct drm_asahi_cmd_render r = {0};
    struct drm_asahi_cmd_header h = {.cmd_type = DRM_ASAHI_CMD_RENDER,
-                                    .size = sizeof(r),
+                                    .size = AGX_DRM_RENDER_SIZE_PRIOR,
                                     .vdm_barrier = 2,
                                     .cdm_barrier = 5};
    uint64_t base[] = {10, 20};
@@ -1435,7 +1437,36 @@ main(void)
    h.cdm_barrier = DRM_ASAHI_BARRIER_NONE;
    T("deliberate zero rebase", hk_drm_rebase_prior(&h, &r, 7, 8, base, true));
    T("deliberate zero preserved", h.vdm_barrier == 0 && r.prior_vdm == 12);
-   struct drm_asahi_cmd_compute_with_prior co = {0};
+   /* A staged render's tiling prefixes are rebased like the header's. */
+   {
+      uint8_t staged[AGX_DRM_RENDER_SIZE_PRIOR +
+                     AGX_DRM_RENDER_SIZE_FULL - AGX_DRM_RENDER_SIZE_RAY_QUERY]
+         __attribute__((aligned(8))) = {0};
+      struct drm_asahi_cmd_render *sr = (void *)staged;
+      struct drm_asahi_cmd_render tail = {
+         .ta_cdm_barrier = 5,
+         .ta_vdm_barrier = 2,
+      };
+      sr->flags = DRM_ASAHI_RENDER_STAGE_PREFIXES;
+      memcpy(staged + AGX_DRM_RENDER_SIZE_PRIOR, &tail.ta_cdm_barrier,
+             sizeof(staged) - AGX_DRM_RENDER_SIZE_PRIOR);
+      h = (struct drm_asahi_cmd_header){.cmd_type = DRM_ASAHI_CMD_RENDER,
+                                        .size = sizeof(staged),
+                                        .vdm_barrier = 2,
+                                        .cdm_barrier = 5};
+      T("staged rebase", hk_drm_rebase_prior(&h, staged, 3, 4, base, true));
+      memcpy(&tail.ta_cdm_barrier, staged + AGX_DRM_RENDER_SIZE_PRIOR,
+             sizeof(staged) - AGX_DRM_RENDER_SIZE_PRIOR);
+      T("staged tiling render prefix exact global12",
+        tail.ta_vdm_barrier == DRM_ASAHI_BARRIER_NONE &&
+           tail.ta_prior_vdm == 12);
+      T("staged tiling compute prefix relative1",
+        tail.ta_cdm_barrier == 1 && tail.ta_prior_cdm == 0);
+      h.size = AGX_DRM_RENDER_SIZE_FULL;
+      T("staged size mismatch rejected",
+        !hk_drm_rebase_prior(&h, staged, 3, 4, base, true));
+   }
+   struct drm_asahi_cmd_compute co = {0};
    h = (struct drm_asahi_cmd_header){.cmd_type = DRM_ASAHI_CMD_COMPUTE,
                                      .size = sizeof(co),
                                      .vdm_barrier = DRM_ASAHI_BARRIER_NONE,
@@ -1498,20 +1529,21 @@ main(void)
    T("relative overflow rejected", !submit(q, a));
    T("relative overflow untouched",
      q->sync.submitted[1] == 0 && d->sync.index == 91);
-   /* Legacy packet prefixes retain all original bytes, extensions are omitted.
-    */
-   struct drm_asahi_cmd_render lr;
+   /* The appended parts leave the base command's bytes as they are, so a
+    * command cut at the base size is the base command. */
+   struct drm_asahi_cmd_render lr, er;
    memset(&lr, 0xa5, sizeof(lr));
-   struct drm_asahi_cmd_render_with_prior er = {.legacy = lr,
-                                                .prior_vdm = 17,
-                                                .prior_cdm = 29};
-   T("legacy render bytes", memcmp(&lr, &er, sizeof(lr)) == 0);
-   struct drm_asahi_cmd_compute lc;
+   er = lr;
+   er.prior_vdm = 17;
+   er.prior_cdm = 29;
+   er.ta_prior_vdm = 31;
+   T("base render bytes", memcmp(&lr, &er, AGX_DRM_RENDER_SIZE_BASE) == 0);
+   struct drm_asahi_cmd_compute lc, ec;
    memset(&lc, 0x5a, sizeof(lc));
-   struct drm_asahi_cmd_compute_with_prior ec = {.legacy = lc,
-                                                 .prior_vdm = 17,
-                                                 .prior_cdm = 29};
-   T("legacy compute bytes", memcmp(&lc, &ec, sizeof(lc)) == 0);
+   ec = lc;
+   ec.prior_vdm = 17;
+   ec.prior_cdm = 29;
+   T("base compute bytes", memcmp(&lc, &ec, AGX_DRM_COMPUTE_SIZE_BASE) == 0);
    printf("RESULT checks=%u failures=%u\n", tests, failures);
    ralloc_free(test_context);
    return failures ? EXIT_FAILURE : EXIT_SUCCESS;

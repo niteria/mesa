@@ -1352,14 +1352,11 @@ queue_submit(struct hk_device *dev, struct hk_queue *queue,
    if (flush_sstt) {
       assert(queue->g17p_sstt_flush_bo);
       struct drm_asahi_cmd_header header = agx_cmd_header(true, 0, 0);
-      const struct drm_asahi_cmd_compute_with_prior cmd = {
-         .legacy = {
-            .cdm_ctrl_stream_base = queue->g17p_sstt_flush_bo->va->addr,
-            .cdm_ctrl_stream_end =
-               queue->g17p_sstt_flush_bo->va->addr +
-               AGX3_CDM_SSTT_FLUSH_INVALIDATE_SIZE +
-               AGX3_CDM_STREAM_TERMINATE_SIZE,
-         },
+      const struct drm_asahi_cmd_compute cmd = {
+         .cdm_ctrl_stream_base = queue->g17p_sstt_flush_bo->va->addr,
+         .cdm_ctrl_stream_end = queue->g17p_sstt_flush_bo->va->addr +
+                                AGX3_CDM_SSTT_FLUSH_INVALIDATE_SIZE +
+                                AGX3_CDM_STREAM_TERMINATE_SIZE,
       };
       if (queue->sync.exact_prior)
          header.size = sizeof(cmd);
@@ -1485,13 +1482,13 @@ queue_submit(struct hk_device *dev, struct hk_queue *queue,
                                          cs->compute_resources.data,
                                          cs->compute_resources.size);
             }
-            struct drm_asahi_cmd_compute_with_prior cmd = {0};
-            asahi_fill_cdm_command(dev, cs, &cmd.legacy);
-            cmd.legacy.flags |= hk_as_build_flags(dev->dev.chip,
+            struct drm_asahi_cmd_compute cmd = {0};
+            asahi_fill_cdm_command(dev, cs, &cmd);
+            cmd.flags |= hk_as_build_flags(dev->dev.chip,
                                                   dev->dev.params.features,
                                                   cs->as_build);
             if (unlikely(anatomy))
-               hk_frame_anatomy_compute(anatomy, dev, cs, &cmd.legacy, i,
+               hk_frame_anatomy_compute(anatomy, dev, cs, &cmd, i,
                                         nr_vdm + nr_cdm, payload.size);
             /* Native ray queries exist only on kernels that accept the
              * extended command (hk_g17p_rt_enabled). */
@@ -1576,13 +1573,13 @@ queue_submit(struct hk_device *dev, struct hk_queue *queue,
                                          cs->render_resources.data,
                                          cs->render_resources.size);
             }
-            struct drm_asahi_cmd_render_with_prior cmd = {0};
-            asahi_fill_vdm_command(dev, cs, &cmd.legacy);
+            struct drm_asahi_cmd_render cmd = {0};
+            asahi_fill_vdm_command(dev, cs, &cmd);
 
             /* M5: the vertex half's own render and compute prefixes, when
              * they are narrower than the whole render's, so its tiling can
              * overlap the fragment work of the renders only its fragment
-             * half depends on. Supersedes the single-subqueue forms below. */
+             * half depends on. Supersedes the fragment-barrier form below. */
             const bool stage_prefixes =
                agx_chip_g17_m5(dev->dev.chip) && !queue->sync.serialize &&
                queue->sync.exact_prior &&
@@ -1590,7 +1587,7 @@ queue_submit(struct hk_device *dev, struct hk_queue *queue,
                 DRM_ASAHI_FEATURE_RENDER_STAGE_PREFIXES) &&
                cs->sync.ta_split;
             if (stage_prefixes)
-               cmd.legacy.flags |= DRM_ASAHI_RENDER_STAGE_PREFIXES;
+               cmd.flags |= DRM_ASAHI_RENDER_STAGE_PREFIXES;
 
             /* The render's vertex half depends on no earlier render while its
              * fragment half does (hk_sync: every render dependency targets
@@ -1606,27 +1603,10 @@ queue_submit(struct hk_device *dev, struct hk_queue *queue,
                 cs->sync.prior_ta[HK_SYNC_VDM] == 0 &&
                 (cs->sync.barrier[HK_SYNC_VDM] != DRM_ASAHI_BARRIER_NONE ||
                  cs->sync.prior[HK_SYNC_VDM] != 0))
-               cmd.legacy.flags |= DRM_ASAHI_RENDER_FRAGMENT_BARRIERS;
+               cmd.flags |= DRM_ASAHI_RENDER_FRAGMENT_BARRIERS;
 
-            /* Likewise for compute: when the vertex half depends on less
-             * compute work than the fragment half (image-only producers
-             * ordered by image barriers, fragment-only destinations), the
-             * kernel orders the tiling half after that prefix alone. */
-            STATIC_ASSERT(sizeof(struct drm_asahi_cmd_render_with_stage_prior) ==
-                          sizeof(struct drm_asahi_cmd_render_with_prior) + 16);
-            const bool stage_cdm =
-               !stage_prefixes &&
-               agx_chip_g17_m5(dev->dev.chip) && queue->sync.exact_prior &&
-               (dev->dev.params.features &
-                DRM_ASAHI_FEATURE_COMPUTE_STAGE_BARRIERS) &&
-               cs->sync.ta_split &&
-               (cs->sync.barrier_ta[HK_SYNC_CDM] !=
-                   cs->sync.barrier[HK_SYNC_CDM] ||
-                cs->sync.prior_ta[HK_SYNC_CDM] != cs->sync.prior[HK_SYNC_CDM]);
-            if (stage_cdm)
-               cmd.legacy.flags |= DRM_ASAHI_RENDER_COMPUTE_STAGE_BARRIERS;
             if (unlikely(anatomy))
-               hk_frame_anatomy_render(anatomy, dev, cs, &cmd.legacy, i,
+               hk_frame_anatomy_render(anatomy, dev, cs, &cmd, i,
                                        nr_vdm + nr_cdm, payload.size);
             header.size = hk_drm_render_command_size(
                agx_native_graphics(&dev->dev) || agx_chip_g17_m5(dev->dev.chip),
@@ -1637,12 +1617,11 @@ queue_submit(struct hk_device *dev, struct hk_queue *queue,
             }
             if (!agx_chip_g17_m5(dev->dev.chip) &&
                 (cs->gen1_native_fragment_rq || cs->gen1_native_vertex_rq)) {
-               struct drm_asahi_cmd_render_with_ray_query extended = {.legacy = cmd};
                for (unsigned stage = 0; stage < 2; ++stage) {
                   if (!(stage ? cs->gen1_native_fragment_rq
                               : cs->gen1_native_vertex_rq))
                      continue;
-                  struct drm_asahi_render_ray_query_stage *rt = &extended.ray_query[stage];
+                  struct drm_asahi_render_ray_query_stage *rt = &cmd.ray_query[stage];
                   rt->scs_layout = hk_gen1_ray_query_scs_layout(dev);
                   rt->intersection_pool = dev->gen1_rq_ift->va->addr;
                   rt->intersection_pool_bytes = 0x4000;
@@ -1651,31 +1630,24 @@ queue_submit(struct hk_device *dev, struct hk_queue *queue,
                   rt->intersection_default = UINT64_C(0x10010020000);
                   rt->intersection_default_control = UINT64_C(0x16000000000);
                }
-               header.size = sizeof(extended);
+               header.size = AGX_DRM_RENDER_SIZE_RAY_QUERY;
                util_dynarray_append(&payload, header);
-               util_dynarray_append_array(&payload, uint8_t, &extended, header.size);
+               util_dynarray_append_array(&payload, uint8_t, &cmd, header.size);
             } else if (stage_prefixes) {
-               const struct drm_asahi_cmd_render_with_stage_prefixes staged = {
-                  .legacy = cmd,
-                  .ta_cdm_barrier = cs->sync.barrier_ta[HK_SYNC_CDM],
-                  .ta_prior_cdm = cs->sync.prior_ta[HK_SYNC_CDM],
-                  .ta_vdm_barrier = cs->sync.barrier_ta[HK_SYNC_VDM],
-                  .ta_prior_vdm = cs->sync.prior_ta[HK_SYNC_VDM],
-               };
-               header.size = sizeof(staged);
+               cmd.ta_cdm_barrier = cs->sync.barrier_ta[HK_SYNC_CDM];
+               cmd.ta_prior_cdm = cs->sync.prior_ta[HK_SYNC_CDM];
+               cmd.ta_vdm_barrier = cs->sync.barrier_ta[HK_SYNC_VDM];
+               cmd.ta_prior_vdm = cs->sync.prior_ta[HK_SYNC_VDM];
+               /* The command carries the tiling prefixes right after
+                * prior_cdm. */
+               const size_t tail =
+                  AGX_DRM_RENDER_SIZE_FULL - AGX_DRM_RENDER_SIZE_RAY_QUERY;
+               header.size = AGX_DRM_RENDER_SIZE_PRIOR + tail;
                util_dynarray_append(&payload, header);
-               util_dynarray_append_array(&payload, uint8_t, &staged,
-                                          header.size);
-            } else if (stage_cdm) {
-               const struct drm_asahi_cmd_render_with_stage_prior staged = {
-                  .legacy = cmd,
-                  .ta_cdm_barrier = cs->sync.barrier_ta[HK_SYNC_CDM],
-                  .ta_prior_cdm = cs->sync.prior_ta[HK_SYNC_CDM],
-               };
-               header.size = sizeof(staged);
-               util_dynarray_append(&payload, header);
-               util_dynarray_append_array(&payload, uint8_t, &staged,
-                                          header.size);
+               util_dynarray_append_array(&payload, uint8_t, &cmd,
+                                          AGX_DRM_RENDER_SIZE_PRIOR);
+               util_dynarray_append_array(&payload, uint8_t,
+                                          &cmd.ta_cdm_barrier, tail);
             } else {
                util_dynarray_append(&payload, header);
                util_dynarray_append_array(&payload, uint8_t, &cmd, header.size);

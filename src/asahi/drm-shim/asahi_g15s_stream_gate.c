@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "util/macros.h"
+#include "agx_drm_cmd.h"
 
 static bool
 all_zero(const void *data, size_t size)
@@ -31,8 +32,8 @@ refuse(const char *what)
 /* The kernel's known payloads are Aurora's flat layouts: render is the
  * legacy command, prior 16 and ray_query 2 x 56 (448 bytes with the merged
  * UAPI's timestamp copies), compute the command with its prior tail (200). */
-#define G15S_RENDER_KNOWN  sizeof(struct drm_asahi_cmd_render_with_ray_query)
-#define G15S_COMPUTE_KNOWN sizeof(struct drm_asahi_cmd_compute_with_prior)
+#define G15S_RENDER_KNOWN  AGX_DRM_RENDER_SIZE_RAY_QUERY
+#define G15S_COMPUTE_KNOWN AGX_DRM_COMPUTE_SIZE_FULL
 
 bool
 asahi_g15s_render_packet_validate(const struct drm_asahi_cmd_render *render,
@@ -75,9 +76,11 @@ asahi_g15s_render_packet_validate(const struct drm_asahi_cmd_render *render,
       return refuse("a partial EOT resource-specifier high word");
 
    /* prior_vdm/prior_cdm until EXACT_PRIOR_BARRIERS, then ray_query. */
-   if (size > sizeof(*render)) {
-      const size_t tail = MIN2(size, G15S_RENDER_KNOWN) - sizeof(*render);
-      const uint8_t *bytes = (const uint8_t *)payload + sizeof(*render);
+   if (size > AGX_DRM_RENDER_SIZE_BASE) {
+      const size_t tail =
+         MIN2(size, G15S_RENDER_KNOWN) - AGX_DRM_RENDER_SIZE_BASE;
+      const uint8_t *bytes =
+         (const uint8_t *)payload + AGX_DRM_RENDER_SIZE_BASE;
       size_t checked = tail;
       if (features & DRM_ASAHI_FEATURE_EXACT_PRIOR_BARRIERS) {
          bytes += MIN2(tail, 16);
@@ -108,9 +111,10 @@ asahi_g15s_compute_packet_validate(
       return refuse("a compute sampler heap");
    /* scs_layout, prior_vdm/prior_cdm (with EXACT_PRIOR_BARRIERS), then the
     * auxiliary allocation and intersection pool. */
-   const size_t prior_start = sizeof(*compute) + 8, prior_end = prior_start + 16;
+   const size_t prior_start = AGX_DRM_COMPUTE_SIZE_BASE + 8,
+                prior_end = prior_start + 16;
    const size_t known = MIN2(size, G15S_COMPUTE_KNOWN);
-   for (size_t at = sizeof(*compute); at < known; ++at) {
+   for (size_t at = AGX_DRM_COMPUTE_SIZE_BASE; at < known; ++at) {
       const bool prior = at >= prior_start && at < prior_end &&
                          (features & DRM_ASAHI_FEATURE_EXACT_PRIOR_BARRIERS);
       if (!prior && ((const uint8_t *)payload)[at])

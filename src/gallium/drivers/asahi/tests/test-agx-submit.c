@@ -50,6 +50,7 @@ inspect_submit(struct agx_device *dev, struct drm_asahi_submit *submit,
       CHECK(h->size <= submit->cmdbuf_size - cursor - sizeof(*h));
       if (h->cmd_type == DRM_ASAHI_CMD_COMPUTE) {
          CHECK(h->vdm_barrier == 0 && h->cdm_barrier == 0);
+         CHECK(h->size == 128 && h->size == AGX_DRM_COMPUTE_SIZE_BASE);
          prefix[1]++;
          computes++;
       } else if (h->cmd_type == DRM_ASAHI_CMD_RENDER) {
