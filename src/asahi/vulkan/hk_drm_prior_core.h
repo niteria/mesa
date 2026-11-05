@@ -3,7 +3,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <string.h>
 #include "drm-uapi/asahi_drm.h"
 #include "agx_drm_cmd.h"
 
@@ -82,18 +81,12 @@ hk_drm_rebase_prior(struct drm_asahi_cmd_header *h, void *payload,
    h->cdm_barrier = barriers[1];
    if (exact && h->cmd_type == DRM_ASAHI_CMD_RENDER &&
        (r->flags & DRM_ASAHI_RENDER_STAGE_PREFIXES)) {
-      /* Both tiling prefixes are rebased like the header's. The command
-       * carries them right after prior_cdm. */
-      const size_t tail =
-         AGX_DRM_RENDER_SIZE_FULL - AGX_DRM_RENDER_SIZE_RAY_QUERY;
-      if (h->size != AGX_DRM_RENDER_SIZE_PRIOR + tail)
+      /* Both tiling prefixes are rebased like the header's. A staged
+       * command is the full command. */
+      if (h->size != AGX_DRM_RENDER_SIZE_FULL)
          return false;
-      struct drm_asahi_cmd_render staged;
-      struct drm_asahi_cmd_render *s = &staged;
-      uint8_t *at = (uint8_t *)payload + AGX_DRM_RENDER_SIZE_PRIOR;
-      memcpy(&s->ta_cdm_barrier, at, tail);
-      __u16 *ta[2] = {&s->ta_vdm_barrier, &s->ta_cdm_barrier};
-      __u64 *ta_prior[2] = {&s->ta_prior_vdm, &s->ta_prior_cdm};
+      __u16 *ta[2] = {&r->ta_vdm_barrier, &r->ta_cdm_barrier};
+      __u64 *ta_prior[2] = {&r->ta_prior_vdm, &r->ta_prior_cdm};
       for (unsigned sq = 0; sq < 2; ++sq) {
          const uint16_t value = *ta[sq];
          if (value == DRM_ASAHI_BARRIER_NONE || value == 0)
@@ -109,7 +102,6 @@ hk_drm_rebase_prior(struct drm_asahi_cmd_header *h, void *payload,
             *ta[sq] = DRM_ASAHI_BARRIER_NONE;
          }
       }
-      memcpy(at, &s->ta_cdm_barrier, tail);
    }
    if (exact && h->cmd_type == DRM_ASAHI_CMD_RENDER) {
       r->prior_vdm = prior[0];

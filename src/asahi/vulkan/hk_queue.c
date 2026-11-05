@@ -1579,12 +1579,15 @@ queue_submit(struct hk_device *dev, struct hk_queue *queue,
             /* M5: the vertex half's own render and compute prefixes, when
              * they are narrower than the whole render's, so its tiling can
              * overlap the fragment work of the renders only its fragment
-             * half depends on. Supersedes the fragment-barrier form below. */
+             * half depends on. Supersedes the fragment-barrier form below.
+             * Only kernels that take the full command report the V2 feature;
+             * the original feature named a shorter form this driver no
+             * longer sends. */
             const bool stage_prefixes =
                agx_chip_g17_m5(dev->dev.chip) && !queue->sync.serialize &&
                queue->sync.exact_prior &&
                (dev->dev.params.features &
-                DRM_ASAHI_FEATURE_RENDER_STAGE_PREFIXES) &&
+                DRM_ASAHI_FEATURE_RENDER_STAGE_PREFIXES_V2) &&
                cs->sync.ta_split;
             if (stage_prefixes)
                cmd.flags |= DRM_ASAHI_RENDER_STAGE_PREFIXES;
@@ -1631,27 +1634,18 @@ queue_submit(struct hk_device *dev, struct hk_queue *queue,
                   rt->intersection_default_control = UINT64_C(0x16000000000);
                }
                header.size = AGX_DRM_RENDER_SIZE_RAY_QUERY;
-               util_dynarray_append(&payload, header);
-               util_dynarray_append_array(&payload, uint8_t, &cmd, header.size);
-            } else if (stage_prefixes) {
+            }
+            if (stage_prefixes) {
+               /* The tiling prefixes follow the ray-query state, which stays
+                * zero when unused: a staged command is the full command. */
                cmd.ta_cdm_barrier = cs->sync.barrier_ta[HK_SYNC_CDM];
                cmd.ta_prior_cdm = cs->sync.prior_ta[HK_SYNC_CDM];
                cmd.ta_vdm_barrier = cs->sync.barrier_ta[HK_SYNC_VDM];
                cmd.ta_prior_vdm = cs->sync.prior_ta[HK_SYNC_VDM];
-               /* The command carries the tiling prefixes right after
-                * prior_cdm. */
-               const size_t tail =
-                  AGX_DRM_RENDER_SIZE_FULL - AGX_DRM_RENDER_SIZE_RAY_QUERY;
-               header.size = AGX_DRM_RENDER_SIZE_PRIOR + tail;
-               util_dynarray_append(&payload, header);
-               util_dynarray_append_array(&payload, uint8_t, &cmd,
-                                          AGX_DRM_RENDER_SIZE_PRIOR);
-               util_dynarray_append_array(&payload, uint8_t,
-                                          &cmd.ta_cdm_barrier, tail);
-            } else {
-               util_dynarray_append(&payload, header);
-               util_dynarray_append_array(&payload, uint8_t, &cmd, header.size);
+               header.size = AGX_DRM_RENDER_SIZE_FULL;
             }
+            util_dynarray_append(&payload, header);
+            util_dynarray_append_array(&payload, uint8_t, &cmd, header.size);
             nr_vdm++;
          }
       }
