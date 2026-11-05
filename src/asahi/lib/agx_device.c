@@ -917,7 +917,6 @@ agx_open_device(void *memctx, struct agx_device *dev)
    if (m5_bringup)
       fprintf(stderr, "Experimental M5 HAL300 integration enabled; general rendering is unqualified\n");
    if (!agx_params_driver_supported(&dev->params) && !m5_bringup) {
-
       if (dev->chip == AGX_CHIP_UNKNOWN) {
          fprintf(stderr,
                  "Unsupported Apple GPU architecture G%u (variant 0x%x, %u "
@@ -961,7 +960,8 @@ agx_open_device(void *memctx, struct agx_device *dev)
       goto fail;
    }
 
-   if (!agx_params_native_kernel_abi_supported(&dev->params)) {
+   if (dev->chip == AGX_CHIP_G15G &&
+       !agx_params_native_kernel_abi_supported(&dev->params)) {
       fprintf(stderr,
               "Incompatible native AGX3 kernel contract (features %#llx); "
               "use the kernel matched to this Mesa build; see its "
@@ -974,7 +974,6 @@ agx_open_device(void *memctx, struct agx_device *dev)
    const char *product = dev->params.chip_id == 0x8140
                             ? agx_chip_exact_product_name(dev->chip)
                             : NULL;
-
    if (product) {
       /* Match the M-series format with the exact GPU codename and revision. */
       snprintf(dev->name, sizeof(dev->name), "Apple %s (%s %02X)", product,
